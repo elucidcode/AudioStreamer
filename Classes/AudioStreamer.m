@@ -30,6 +30,7 @@
 #define BitRateEstimationMinPackets 50
 
 NSString * const ASStatusChangedNotification = @"ASStatusChangedNotification";
+NSString * const ASErrorAlertNotification = @"ASErrorAlertNotification";
 
 NSString * const AS_NO_ERROR_STRING = @"No error.";
 NSString * const AS_FILE_STREAM_GET_PROPERTY_FAILED_STRING = @"File stream get property failed.";
@@ -352,6 +353,13 @@ static void ASReadStreamCallBack
 - (void)presentAlertWithTitle:(NSString*)title message:(NSString*)message
 {
 #if TARGET_OS_IPHONE
+    NSNotification *notification =
+    [NSNotification
+     notificationWithName:ASErrorAlertNotification
+     object:self];
+	[[NSNotificationCenter defaultCenter]
+     postNotification:notification];
+    return;
 	UIAlertView *alert = [
 		[[UIAlertView alloc]
 			initWithTitle:title
