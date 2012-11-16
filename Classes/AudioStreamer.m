@@ -31,6 +31,7 @@
 
 NSString * const ASStatusChangedNotification = @"ASStatusChangedNotification";
 NSString * const ASErrorAlertNotification = @"ASErrorAlertNotification";
+NSString * const ASStreamCachedNotification = @"ASStreamCachedNotification";
 
 NSString * const AS_NO_ERROR_STRING = @"No error.";
 NSString * const AS_FILE_STREAM_GET_PROPERTY_FAILED_STRING = @"File stream get property failed.";
@@ -57,6 +58,7 @@ NSString * const AS_AUDIO_BUFFER_TOO_SMALL_STRING = @"Audio packets are larger t
 
 @interface AudioStreamer ()
 @property (readwrite) AudioStreamerState state;
+@property (nonatomic,retain) NSFileHandle *tempFileHandle;
 
 - (void)handlePropertyChangeForFileStream:(AudioFileStreamID)inAudioFileStream
 	fileStreamPropertyID:(AudioFileStreamPropertyID)inPropertyID
@@ -230,6 +232,9 @@ static void ASReadStreamCallBack
 - (void)dealloc
 {
 	[self stop];
+
+    [self cleanupTemporaryFile];
+    
 	[url release];
 	[fileExtension release];
 	[super dealloc];
@@ -615,6 +620,53 @@ static void ASReadStreamCallBack
 	return fileTypeHint;
 }
 
+- (BOOL)setupTemporaryFile {
+    [self cleanupTemporaryFile];
+    
+    NSString *tempFileTemplate =
+    [NSTemporaryDirectory() stringByAppendingPathComponent:@"awesometunes.XXXXXX"];
+    const char *tempFileTemplateCString =
+    [tempFileTemplate fileSystemRepresentation];
+    char *tempFileNameCString = (char *)malloc(strlen(tempFileTemplateCString) + 1);
+    strcpy(tempFileNameCString, tempFileTemplateCString);
+    int fileDescriptor = mkstemp(tempFileNameCString);
+    
+    if (fileDescriptor == -1)
+    {
+        // handle file creation failure
+        return NO;
+    }
+    
+    // This is the file name if you need to access the file by name, otherwise you can remove
+    // this line.
+    self.tempFileName =
+    [[NSFileManager defaultManager]
+     stringWithFileSystemRepresentation:tempFileNameCString
+     length:strlen(tempFileNameCString)];
+    
+    free(tempFileNameCString);
+    self.tempFileHandle =
+    [[[NSFileHandle alloc]
+     initWithFileDescriptor:fileDescriptor
+     closeOnDealloc:YES] autorelease];
+
+    NSLog(@"Temporary file created with filename: %@", self.tempFileName);
+    return YES;
+}
+
+- (void)cleanupTemporaryFile {
+    NSLog(@"Cleaning up temporary file");
+    @synchronized(self) {
+        if (self.tempFileHandle) {
+            [self.tempFileHandle closeFile];
+            self.tempFileHandle = nil;
+            NSFileManager *fileManager = [NSFileManager defaultManager];
+            [fileManager removeItemAtPath:self.tempFileName error:nil];
+        }
+        self.tempFileName = nil;
+    }
+}
+
 //
 // openReadStream
 //
@@ -628,6 +680,8 @@ static void ASReadStreamCallBack
 		NSAssert([[NSThread currentThread] isEqual:internalThread],
 			@"File stream download must be started on the internalThread");
 		NSAssert(stream == nil, @"Download stream already initialized");
+        
+        [self cleanupTemporaryFile];
 		
 		//
 		// Create the HTTP GET request
@@ -643,7 +697,9 @@ static void ASReadStreamCallBack
 			CFHTTPMessageSetHeaderFieldValue(message, CFSTR("Range"),
 				(CFStringRef)[NSString stringWithFormat:@"bytes=%ld-%ld", seekByteOffset, fileLength]);
 			discontinuous = YES;
-		}
+		} else {
+            [self setupTemporaryFile];
+        }
 		
 		//
 		// Create the read stream that will receive data from the HTTP request
@@ -1270,6 +1326,18 @@ cleanup:
 				}
 			}
 		}
+        
+        // All is good, save the cached stream
+        if (self.tempFileHandle) {
+            [self.tempFileHandle closeFile];
+            self.tempFileHandle = nil;
+            NSNotification *notification =
+            [NSNotification
+             notificationWithName:ASStreamCachedNotification
+             object:self];
+            [[NSNotificationCenter defaultCenter]
+             postNotification:notification];
+        }
 	}
 	else if (eventType == kCFStreamEventHasBytesAvailable)
 	{
@@ -1341,6 +1409,7 @@ cleanup:
 			{
 				return;
 			}
+            [self.tempFileHandle writeData:[NSData dataWithBytes:bytes length:length]];
 		}
 
 		if (discontinuous)

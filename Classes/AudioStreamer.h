@@ -107,6 +107,7 @@ typedef enum
 
 extern NSString * const ASStatusChangedNotification;
 extern NSString * const ASErrorAlertNotification;
+extern NSString * const ASStreamCachedNotification;
 
 @interface AudioStreamer : NSObject
 {
@@ -178,6 +179,7 @@ extern NSString * const ASErrorAlertNotification;
 @property (readwrite) UInt32 bitRate;
 @property (readonly) NSDictionary *httpHeaders;
 @property (copy,readwrite) NSString *fileExtension;
+@property (nonatomic,retain) NSString *tempFileName;
 
 - (id)initWithURL:(NSURL *)aURL;
 - (void)start;
