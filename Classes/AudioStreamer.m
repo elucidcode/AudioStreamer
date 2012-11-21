@@ -435,6 +435,8 @@ static void ASReadStreamCallBack
 			stopReason = AS_STOPPING_ERROR;
 			AudioQueueStop(audioQueue, true);
 		}
+        
+        [self cleanupTemporaryFile];
 
 		[self presentAlertWithTitle:NSLocalizedStringFromTable(@"File Error", @"Errors", nil)
 							message:NSLocalizedStringFromTable(@"Unable to configure network read stream.", @"Errors", nil)];
