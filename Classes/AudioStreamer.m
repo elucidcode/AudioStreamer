@@ -821,7 +821,9 @@ static void ASReadStreamCallBack
 			return;
 		}
 		
-	#if TARGET_OS_IPHONE			
+	#if TARGET_OS_IPHONE	
+		/*
+         // Better handled by the app
 		//
 		// Set the audio session category so that we continue to play if the
 		// iPhone/iPod auto-locks.
@@ -839,6 +841,7 @@ static void ASReadStreamCallBack
 			&sessionCategory
 		);
 		AudioSessionSetActive(true);
+         */
 	#endif
 	
 		// initialize a mutex and condition so that we can block on buffers in use.
@@ -929,7 +932,10 @@ cleanup:
 		pthread_cond_destroy(&queueBufferReadyCondition);
 
 #if TARGET_OS_IPHONE			
+		/*
+         // Better handled by the app
 		AudioSessionSetActive(false);
+         */
 #endif
 
 		[httpHeaders release];
@@ -2017,7 +2023,7 @@ cleanup:
 //    inAQ - the audio queue
 //    inID - the property ID
 //
-- (void)handleInterruptionChangeToState:(AudioQueuePropertyID)inInterruptionState 
+- (void)handleInterruptionChangeToState:(AudioQueuePropertyID)inInterruptionState
 {
 	if (inInterruptionState == kAudioSessionBeginInterruption)
 	{ 
