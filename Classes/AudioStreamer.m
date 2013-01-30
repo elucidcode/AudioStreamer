@@ -59,6 +59,7 @@ NSString * const AS_AUDIO_BUFFER_TOO_SMALL_STRING = @"Audio packets are larger t
 @interface AudioStreamer ()
 @property (readwrite) AudioStreamerState state;
 @property (nonatomic,retain) NSFileHandle *tempFileHandle;
+@property (nonatomic,assign) BOOL connectedSuccessfully;
 
 - (void)handlePropertyChangeForFileStream:(AudioFileStreamID)inAudioFileStream
 	fileStreamPropertyID:(AudioFileStreamPropertyID)inPropertyID
@@ -1409,6 +1410,13 @@ cleanup:
 			
 			if (length == -1)
 			{
+				if (self.connectedSuccessfully) {
+					self.connectedSuccessfully = NO;
+					[self pause];
+					[self seekToTime:[self progress]];
+					[self pause];
+					return;
+				}
 				[self failWithErrorCode:AS_AUDIO_DATA_NOT_FOUND];
 				return;
 			}
@@ -1417,7 +1425,10 @@ cleanup:
 			{
 				return;
 			}
-            [self.tempFileHandle writeData:[NSData dataWithBytes:bytes length:length]];
+			if (!self.connectedSuccessfully) {
+				self.connectedSuccessfully = YES;
+			}
+			[self.tempFileHandle writeData:[NSData dataWithBytes:bytes length:length]];
 		}
 
 		if (discontinuous)
