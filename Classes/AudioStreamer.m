@@ -1237,7 +1237,7 @@ cleanup:
 		seekWasRequested = NO;
 	}
 	
-	while (state != AS_INITIALIZED)
+	while (state != AS_INITIALIZED && errorCode != AS_NO_ERROR)
 	{
 		[NSThread sleepForTimeInterval:0.1];
 	}
