@@ -1605,11 +1605,19 @@ cleanup:
 			return;
 		}
 	}
+    
+    // set the software codec too on the queue.
+    UInt32 val = kAudioQueueHardwareCodecPolicy_PreferSoftware;
+    OSStatus ignorableError;
+    ignorableError = AudioQueueSetProperty(audioQueue, kAudioQueueProperty_HardwareCodecPolicy, &val, sizeOfUInt32);
+    if (ignorableError)
+    {
+        return;
+    }
 
 	// get the cookie size
 	UInt32 cookieSize;
 	Boolean writable;
-	OSStatus ignorableError;
 	ignorableError = AudioFileStreamGetPropertyInfo(audioFileStream, kAudioFileStreamProperty_MagicCookieData, &cookieSize, &writable);
 	if (ignorableError)
 	{
