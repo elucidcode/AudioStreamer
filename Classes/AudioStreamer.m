@@ -32,6 +32,7 @@
 NSString * const ASStatusChangedNotification = @"ASStatusChangedNotification";
 NSString * const ASErrorAlertNotification = @"ASErrorAlertNotification";
 NSString * const ASStreamCachedNotification = @"ASStreamCachedNotification";
+NSString * const ASAudioSessionInterruptionOccuredNotification = @"ASAudioSessionInterruptionOccuredNotification";
 
 NSString * const AS_NO_ERROR_STRING = @"No error.";
 NSString * const AS_FILE_STREAM_GET_PROPERTY_FAILED_STRING = @"File stream get property failed.";
@@ -60,6 +61,7 @@ NSString * const AS_AUDIO_BUFFER_TOO_SMALL_STRING = @"Audio packets are larger t
 @property (readwrite) AudioStreamerState state;
 @property (nonatomic,retain) NSFileHandle *tempFileHandle;
 @property (nonatomic,assign) BOOL connectedSuccessfully;
+@property (readwrite) AudioStreamerState laststate;
 
 - (void)handlePropertyChangeForFileStream:(AudioFileStreamID)inAudioFileStream
 	fileStreamPropertyID:(AudioFileStreamPropertyID)inPropertyID
@@ -74,7 +76,7 @@ NSString * const AS_AUDIO_BUFFER_TOO_SMALL_STRING = @"Audio packets are larger t
 	propertyID:(AudioQueuePropertyID)inID;
 
 #if TARGET_OS_IPHONE
-- (void)handleInterruptionChangeToState:(AudioQueuePropertyID)inInterruptionState;
+- (void)handleInterruptionChangeToState:(NSNotification *)notification;
 #endif
 
 - (void)internalSeekToTime:(double)newSeekTime;
@@ -174,10 +176,8 @@ static void ASAudioQueueIsRunningCallback(void *inUserData, AudioQueueRef inAQ, 
 //
 // Invoked if the audio session is interrupted (like when the phone rings)
 //
-static void ASAudioSessionInterruptionListener(void *inClientData, UInt32 inInterruptionState)
-{
-	AudioStreamer* streamer = (AudioStreamer *)inClientData;
-	[streamer handleInterruptionChangeToState:inInterruptionState];
+static void ASAudioSessionInterruptionListener(__unused void * inClientData, UInt32 inInterruptionState) {
+    [[NSNotificationCenter defaultCenter] postNotificationName:ASAudioSessionInterruptionOccuredNotification object:@(inInterruptionState)];
 }
 #endif
 
@@ -206,6 +206,7 @@ static void ASReadStreamCallBack
 
 @synthesize errorCode;
 @synthesize state;
+@synthesize laststate;
 @synthesize bitRate;
 @synthesize httpHeaders;
 @synthesize fileExtension;
@@ -221,6 +222,7 @@ static void ASReadStreamCallBack
 	if (self != nil)
 	{
 		url = [aURL retain];
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleInterruptionChangeToState:) name:ASAudioSessionInterruptionOccuredNotification object:nil];
 	}
 	return self;
 }
@@ -232,6 +234,7 @@ static void ASReadStreamCallBack
 //
 - (void)dealloc
 {
+	[[NSNotificationCenter defaultCenter] removeObserver:self name:ASAudioSessionInterruptionOccuredNotification object:nil];
 	[self stop];
 
     [self cleanupTemporaryFile];
@@ -1179,7 +1182,7 @@ cleanup:
 {
 	@synchronized(self)
 	{
-		if (state == AS_PLAYING)
+		if (state == AS_PLAYING || state == AS_STOPPING)
 		{
 			err = AudioQueuePause(audioQueue);
 			if (err)
@@ -1187,6 +1190,7 @@ cleanup:
 				[self failWithErrorCode:AS_AUDIO_QUEUE_PAUSE_FAILED];
 				return;
 			}
+            self.laststate = state;
 			self.state = AS_PAUSED;
 		}
 		else if (state == AS_PAUSED)
@@ -1197,7 +1201,7 @@ cleanup:
 				[self failWithErrorCode:AS_AUDIO_QUEUE_START_FAILED];
 				return;
 			}
-			self.state = AS_PLAYING;
+			self.state = self.laststate;
 		}
 	}
 }
@@ -1712,6 +1716,7 @@ cleanup:
 	        err = AudioFileStreamGetProperty(inAudioFileStream, kAudioFileStreamProperty_FormatList, &formatListSize, formatList);
 			if (err)
 			{
+				free(formatList);
 				[self failWithErrorCode:AS_FILE_STREAM_GET_PROPERTY_FAILED];
 				return;
 			}
@@ -1971,6 +1976,11 @@ cleanup:
 	pthread_mutex_unlock(&queueBuffersMutex);
 }
 
+- (void)handlePropertyChange:(NSNumber *)num
+{
+	[self handlePropertyChangeForQueue:NULL propertyID:[num intValue]];
+}
+
 //
 // handlePropertyChangeForQueue:propertyID:
 //
@@ -1985,13 +1995,31 @@ cleanup:
 {
 	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
 	
+	if (![[NSThread currentThread] isEqual:internalThread])
+	{
+		[self
+			performSelector:@selector(handlePropertyChange:)
+			onThread:internalThread
+			withObject:[NSNumber numberWithInt:inID]
+			waitUntilDone:NO
+			modes:[NSArray arrayWithObject:NSDefaultRunLoopMode]];
+		return;
+	}
 	@synchronized(self)
 	{
 		if (inID == kAudioQueueProperty_IsRunning)
 		{
 			if (state == AS_STOPPING)
 			{
-				self.state = AS_STOPPED;
+				// Should check value of isRunning to ensure this kAudioQueueProperty_IsRunning isn't
+				// the *start* of a very short stream
+				UInt32 isRunning = 0;
+				UInt32 size = sizeof(UInt32);
+				AudioQueueGetProperty(audioQueue, inID, &isRunning, &size);
+				if (isRunning == 0)
+				{
+					self.state = AS_STOPPED;
+				}
 			}
 			else if (state == AS_WAITING_FOR_QUEUE_TO_START)
 			{
@@ -2034,8 +2062,8 @@ cleanup:
 //    inAQ - the audio queue
 //    inID - the property ID
 //
-- (void)handleInterruptionChangeToState:(AudioQueuePropertyID)inInterruptionState
-{
+- (void)handleInterruptionChangeToState:(NSNotification *)notification {
+    AudioQueuePropertyID inInterruptionState = (AudioQueuePropertyID) [notification.object unsignedIntValue];
 	if (inInterruptionState == kAudioSessionBeginInterruption)
 	{ 
 		if ([self isPlaying]) {

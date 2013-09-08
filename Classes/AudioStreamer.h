@@ -136,6 +136,7 @@ extern NSString * const ASStreamCachedNotification;
 	NSString *fileExtension;
 	
 	AudioStreamerState state;
+	AudioStreamerState laststate;
 	AudioStreamerStopReason stopReason;
 	AudioStreamerErrorCode errorCode;
 	OSStatus err;
